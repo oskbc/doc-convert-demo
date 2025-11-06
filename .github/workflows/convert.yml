@@ -1,20 +1,16 @@
-name: Convert Markdown
+name: Convert Markdown (manual)
 
 on:
-  push:
-    paths:
-      - "docs/src/**"
-      - "templates/**"
   workflow_dispatch:
     inputs:
       paths:
-        description: "変換対象（既定：docs/src/**/*.md）"
-        required: false
+        description: "変換したいMarkdownファイル（例：docs/src/demo.md または docs/src/*.md）"
+        required: true
         default: "docs/src/**/*.md"
       targets:
-        description: "出力形式（例：docx,pdf,html,pptx）"
+        description: "出力形式（例：docx,html,pptx,xlsx）"
         required: false
-        default: "docx,pdf,html,pptx"
+        default: "docx,html,pptx,xlsx"
       client:
         description: "テンプレートディレクトリ名（templates/{client}/）"
         required: false
@@ -30,26 +26,27 @@ jobs:
       # --- ② Pandoc セットアップ ---
       - uses: r-lib/actions/setup-pandoc@v2
 
-      # --- ③ フォント・wkhtmltopdf を導入（日本語PDF対応） ---
-      - name: システム依存パッケージをインストール
+      # --- ③ システム依存パッケージをインストール ---
+      - name: 日本語対応フォントとツールを導入
         run: |
           sudo apt-get update
-          sudo apt-get install -y fonts-noto-cjk wkhtmltopdf librsvg2-bin
+          sudo apt-get install -y fonts-noto-cjk wkhtmltopdf librsvg2-bin python3 python3-pip
+          pip3 install pandas openpyxl
 
-      # --- ④ 出力フォルダ作成 ---
-      - name: 出力ディレクトリを作成
+      # --- ④ 出力ディレクトリを作成 ---
+      - name: 出力フォルダ作成
         run: mkdir -p docs/out
 
-      # --- ⑤ 入力パラメータ ---
-      - name: 入力値を取得
+      # --- ⑤ 入力値を取得 ---
+      - name: 入力パラメータ設定
         id: cfg
         run: |
-          echo "paths=${{ github.event.inputs.paths || 'docs/src/**/*.md' }}" >> $GITHUB_OUTPUT
-          echo "targets=${{ github.event.inputs.targets || 'docx,pdf,html,pptx' }}" >> $GITHUB_OUTPUT
-          echo "client=${{ github.event.inputs.client || 'default' }}" >> $GITHUB_OUTPUT
+          echo "paths=${{ github.event.inputs.paths }}" >> $GITHUB_OUTPUT
+          echo "targets=${{ github.event.inputs.targets }}" >> $GITHUB_OUTPUT
+          echo "client=${{ github.event.inputs.client }}" >> $GITHUB_OUTPUT
 
-      # --- ⑥ 変換本体 ---
-      - name: Pandocで変換実行
+      # --- ⑥ 変換本体（Markdown→docx/html/pptx） ---
+      - name: PandocでMarkdownを変換
         env:
           INPUT_PATHS: ${{ steps.cfg.outputs.paths }}
           INPUT_TARGETS: ${{ steps.cfg.outputs.targets }}
@@ -57,10 +54,9 @@ jobs:
         run: |
           IFS=',' read -ra TARGETS <<< "$INPUT_TARGETS"
 
-          # docs/src以下のMarkdownファイルを再帰的に検索
-          FILES=$(find docs/src -type f -name "*.md")
-
-          echo "=== 対象ファイル一覧 ==="
+          # 対象Markdownファイルを取得
+          FILES=$(bash -lc "ls -1 ${INPUT_PATHS}")
+          echo "=== 対象ファイル ==="
           echo "$FILES"
 
           for f in $FILES; do
@@ -95,22 +91,31 @@ jobs:
               fi
             fi
 
-            # --- PDF ---
-            if printf '%s\n' "${TARGETS[@]}" | grep -q "^pdf$"; then
-              pandoc "$f" -s -o "${out_dir}/${base}.pdf" \
-                --resource-path=docs/src \
-                --pdf-engine=wkhtmltopdf
-            fi
-
-            # --- HTML ---
+            # --- HTML (.html) ---
             if printf '%s\n' "${TARGETS[@]}" | grep -q "^html$"; then
-              pandoc "$f" -s -o "${out_dir}/${base}.html" \
-                --resource-path=docs/src
+              pandoc "$f" -s -o "${out_dir}/${base}.html" --resource-path=docs/src
             fi
           done
 
-      # --- ⑦ 出力成果物をアップロード ---
-      - name: 成果物をアップロード
+      # --- ⑦ CSV→XLSX 自動変換 ---
+      - name: CSVファイルをXLSXに変換
+        run: |
+          python3 - << 'PY'
+import pandas as pd
+import pathlib
+
+# docs/src以下のCSVを探索
+for csv in pathlib.Path("docs/src").rglob("*.csv"):
+    df = pd.read_csv(csv)
+    out_path = pathlib.Path("docs/out") / csv.relative_to("docs/src")
+    out_path = out_path.with_suffix(".xlsx")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_excel(out_path, index=False)
+    print("✅ Converted:", csv, "→", out_path)
+PY
+
+      # --- ⑧ 成果物をアップロード ---
+      - name: 出力成果物をアップロード
         uses: actions/upload-artifact@v4
         with:
           name: outputs
