@@ -1,25 +1,14 @@
-# ===============================
-# GitHub Actions: Markdown自動変換ワークフロー
-# ===============================
-# このワークフローは、docs/src 配下の .md ファイルを検知して
-# Pandoc を使って Word / PDF / PowerPoint / HTML 形式に自動変換します。
-# 生成物は artifacts（出力物）としてZIPでダウンロードできます。
-# ===============================
-
 name: Convert Markdown
 
 on:
-  # docs/src または templates に変更があった場合に自動実行
   push:
     paths:
       - "docs/src/**"
       - "templates/**"
-
-  # 手動実行（Run workflow ボタンから）
   workflow_dispatch:
     inputs:
       paths:
-        description: "変換対象（デフォルト：docs/src/**/*.md）"
+        description: "変換対象（既定：docs/src/**/*.md）"
         required: false
         default: "docs/src/**/*.md"
       targets:
@@ -35,41 +24,43 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # ① リポジトリをチェックアウト（取得）
+      # --- ① ソースを取得 ---
       - uses: actions/checkout@v4
 
-      # ② Pandoc のセットアップ（r-lib公式アクション）
+      # --- ② Pandoc セットアップ ---
       - uses: r-lib/actions/setup-pandoc@v2
 
-      # ③ 必要なシステムパッケージをインストール
+      # --- ③ フォント・wkhtmltopdf を導入（日本語PDF対応） ---
       - name: システム依存パッケージをインストール
         run: |
           sudo apt-get update
           sudo apt-get install -y fonts-noto-cjk wkhtmltopdf
 
-      # ④ 出力ディレクトリを準備
+      # --- ④ 出力フォルダ作成 ---
       - name: 出力ディレクトリを作成
         run: mkdir -p docs/out
 
-      # ⑤ 手動実行時の入力値を取得
-      - name: 入力パラメータを解決
+      # --- ⑤ 入力パラメータ ---
+      - name: 入力値を取得
         id: cfg
         run: |
           echo "paths=${{ github.event.inputs.paths || 'docs/src/**/*.md' }}" >> $GITHUB_OUTPUT
           echo "targets=${{ github.event.inputs.targets || 'docx,pdf,html,pptx' }}" >> $GITHUB_OUTPUT
           echo "client=${{ github.event.inputs.client || 'default' }}" >> $GITHUB_OUTPUT
 
-      # ⑥ Pandocで各形式に変換
-      - name: Pandocで変換を実行
+      # --- ⑥ 変換本体 ---
+      - name: Pandocで変換実行
         env:
           INPUT_PATHS: ${{ steps.cfg.outputs.paths }}
           INPUT_TARGETS: ${{ steps.cfg.outputs.targets }}
           INPUT_CLIENT: ${{ steps.cfg.outputs.client }}
         run: |
           IFS=',' read -ra TARGETS <<< "$INPUT_TARGETS"
-          # 安定版：findで全Markdownファイルを再帰検索
+
+          # docs/src以下のMarkdownファイルを再帰的に検索
           FILES=$(find docs/src -type f -name "*.md")
-          echo "対象ファイル:"
+
+          echo "=== 対象ファイル一覧 ==="
           echo "$FILES"
 
           for f in $FILES; do
@@ -78,9 +69,9 @@ jobs:
             out_dir="docs/out/${INPUT_CLIENT}/${dir#docs/src/}"
             mkdir -p "$out_dir"
 
-            echo "▶ 変換中: $f"
+            echo "▶ $f を変換中..."
 
-            # --- Word（.docx） ---
+            # --- Word (.docx) ---
             if printf '%s\n' "${TARGETS[@]}" | grep -q "^docx$"; then
               if [ -f "templates/${INPUT_CLIENT}/reference.docx" ]; then
                 pandoc "$f" -s -o "${out_dir}/${base}.docx" \
@@ -91,7 +82,7 @@ jobs:
               fi
             fi
 
-            # --- PowerPoint（.pptx） ---
+            # --- PowerPoint (.pptx) ---
             if printf '%s\n' "${TARGETS[@]}" | grep -q "^pptx$"; then
               if [ -f "templates/${INPUT_CLIENT}/reference.pptx" ]; then
                 pandoc "$f" -t pptx -s -o "${out_dir}/${base}.pptx" \
@@ -118,7 +109,7 @@ jobs:
             fi
           done
 
-      # ⑦ 出力成果物をアップロード（ZIPでダウンロード可能）
+      # --- ⑦ 出力成果物をアップロード ---
       - name: 成果物をアップロード
         uses: actions/upload-artifact@v4
         with:
