@@ -1,0 +1,77 @@
+name: Convert Markdown to Word (manual)
+
+# --- 手動実行のみ ---
+on:
+  workflow_dispatch:
+    inputs:
+      paths:
+        description: "変換したいMarkdownファイル（例：docs/src/demo.md または docs/src/*.md）"
+        required: true
+        default: "docs/src/**/*.md"
+      client:
+        description: "テンプレートディレクトリ名（templates/{client}/）"
+        required: false
+        default: "default"
+
+jobs:
+  convert-docx:
+    runs-on: ubuntu-latest
+
+    steps:
+      # --- ① リポジトリをチェックアウト ---
+      - uses: actions/checkout@v4
+
+      # --- ② Pandoc をセットアップ ---
+      - uses: r-lib/actions/setup-pandoc@v2
+
+      # --- ③ フォントを導入（日本語対応） ---
+      - name: 日本語フォントをインストール
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
+
+      # --- ④ 出力フォルダ作成 ---
+      - name: 出力ディレクトリを作成
+        run: mkdir -p docs/out
+
+      # --- ⑤ パラメータ取得 ---
+      - name: 入力値を取得
+        id: cfg
+        run: |
+          echo "paths=${{ github.event.inputs.paths }}" >> $GITHUB_OUTPUT
+          echo "client=${{ github.event.inputs.client }}" >> $GITHUB_OUTPUT
+
+      # --- ⑥ Markdown → Word 変換 ---
+      - name: PandocでMarkdownをWordに変換
+        env:
+          INPUT_PATHS: ${{ steps.cfg.outputs.paths }}
+          INPUT_CLIENT: ${{ steps.cfg.outputs.client }}
+        run: |
+          FILES=$(bash -lc "ls -1 ${INPUT_PATHS}")
+          echo "=== 対象ファイル ==="
+          echo "$FILES"
+
+          for f in $FILES; do
+            base=$(basename "$f" .md)
+            dir=$(dirname "$f")
+            out_dir="docs/out/${INPUT_CLIENT}/${dir#docs/src/}"
+            mkdir -p "$out_dir"
+
+            echo "▶ $f → ${out_dir}/${base}.docx"
+
+            # テンプレートあり／なし両対応
+            if [ -f "templates/${INPUT_CLIENT}/reference.docx" ]; then
+              pandoc "$f" -s -o "${out_dir}/${base}.docx" \
+                --resource-path=docs/src \
+                --reference-doc="templates/${INPUT_CLIENT}/reference.docx"
+            else
+              pandoc "$f" -s -o "${out_dir}/${base}.docx" --resource-path=docs/src
+            fi
+          done
+
+      # --- ⑦ 成果物をアップロード ---
+      - name: 出力成果物をアップロード
+        uses: actions/upload-artifact@v4
+        with:
+          name: docx-outputs
+          path: docs/out/**
