@@ -1,13 +1,13 @@
 name: Convert Markdown to Word 
 
-# --- 手動実行のみ ---
+# --- ワークフロー開始 ---
 on:
   workflow_dispatch:
     inputs:
       paths:
-        description: "変換したいMarkdownファイル（例：docs/src/demo.md または docs/src/*.md）"
+        description: "変換したいMarkdownファイル"
         required: true
-        default: "docs/src/**/*.md"
+        default: "docs/src/*.md"
       client:
         description: "テンプレートディレクトリ名（templates/{client}/）"
         required: false
