@@ -1,4 +1,4 @@
-name: Convert Markdown to Word (manual)
+name: Convert Markdown to Word 
 
 # --- 手動実行のみ ---
 on:
