@@ -49,7 +49,7 @@ jobs:
           echo "=== 対象ファイル一覧 ==="
           echo "$FILES"
 
-          cat << 'PY' > convert_csv_to_xlsx.py
+          python3 - <<EOF
 import pandas as pd
 import pathlib
 
@@ -63,9 +63,7 @@ for csv in pathlib.Path("docs/src").rglob("*.csv"):
         print(f"✅ Converted: {csv} → {out_path}")
     except Exception as e:
         print(f"⚠️ Failed to convert {csv}: {e}")
-PY
-
-          python3 convert_csv_to_xlsx.py
+EOF
 
       # --- ⑥ 成果物をアップロード ---
       - name: 成果物をアップロード
