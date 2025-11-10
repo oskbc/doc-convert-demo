@@ -46,17 +46,20 @@ jobs:
             exit 1
           fi
 
-          python3 - << 'PY'
+          python3 - <<'PY'
 import pandas as pd
 import pathlib
 
 for csv in pathlib.Path("docs/src").rglob("*.csv"):
-    df = pd.read_csv(csv)
-    out_path = pathlib.Path("docs/out") / csv.relative_to("docs/src")
-    out_path = out_path.with_suffix(".xlsx")
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_excel(out_path, index=False)
-    print(f"✅ Converted: {csv} → {out_path}")
+    try:
+        df = pd.read_csv(csv)
+        out_path = pathlib.Path("docs/out") / csv.relative_to("docs/src")
+        out_path = out_path.with_suffix(".xlsx")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_excel(out_path, index=False)
+        print(f"✅ Converted: {csv} → {out_path}")
+    except Exception as e:
+        print(f"⚠️ Failed to convert {csv}: {e}")
 PY
 
       # --- ⑥ 成果物をアップロード ---
