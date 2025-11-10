@@ -1,12 +1,13 @@
-name: Convert Markdown to PowerPoint (manual)
+name: Convert Markdown to PowerPoint
 
+# --- ワークフロー開始 ---
 on:
   workflow_dispatch:
     inputs:
       paths:
-        description: "変換したいMarkdownファイル（例：docs/src/demo.md または docs/src/**/*.md）"
+        description: "変換したいMarkdownファイル"
         required: true
-        default: "docs/src/**/*.md"
+        default: "docs/src/*.md"
       client:
         description: "テンプレートディレクトリ名（templates/{client}/）"
         required: false
@@ -17,42 +18,38 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # --- ① ソースを取得 ---
+      # --- ① リポジトリをチェックアウト ---
       - uses: actions/checkout@v4
 
-      # --- ② Pandoc セットアップ ---
+      # --- ② Pandoc をセットアップ ---
       - uses: r-lib/actions/setup-pandoc@v2
 
-      # --- ③ システム依存パッケージをインストール ---
+      # --- ③ フォントを導入（日本語対応） ---
       - name: 日本語フォントをインストール
         run: |
           sudo apt-get update
-          sudo apt-get install -y fonts-noto-cjk librsvg2-bin
+          sudo apt-get install -y fonts-noto-cjk
 
-      # --- ④ 出力フォルダを作成 ---
+      # --- ④ 出力フォルダ作成 ---
       - name: 出力ディレクトリを作成
         run: mkdir -p docs/out
 
-      # --- ⑤ 入力パラメータ設定 ---
+      # --- ⑤ パラメータ取得 ---
       - name: 入力値を取得
         id: cfg
         run: |
           echo "paths=${{ github.event.inputs.paths }}" >> $GITHUB_OUTPUT
           echo "client=${{ github.event.inputs.client }}" >> $GITHUB_OUTPUT
 
-      # --- ⑥ PandocでMarkdownをPowerPointに変換 ---
-      - name: MarkdownをPowerPointに変換
+      # --- ⑥ Markdown → PowerPoint 変換 ---
+      - name: PandocでMarkdownをPowerPointに変換
         env:
           INPUT_PATHS: ${{ steps.cfg.outputs.paths }}
           INPUT_CLIENT: ${{ steps.cfg.outputs.client }}
         run: |
-          echo "🔍 Searching Markdown files in: $INPUT_PATHS"
-          FILES=$(bash -lc "ls -1 $INPUT_PATHS 2>/dev/null || true")
-
-          if [ -z "$FILES" ]; then
-            echo "❌ Markdownファイルが見つかりません。パスを確認してください。"
-            exit 1
-          fi
+          FILES=$(bash -lc "ls -1 ${INPUT_PATHS}")
+          echo "=== 対象ファイル ==="
+          echo "$FILES"
 
           for f in $FILES; do
             base=$(basename "$f" .md)
@@ -62,7 +59,7 @@ jobs:
 
             echo "▶ $f → ${out_dir}/${base}.pptx"
 
-            # --- reference.pptx が存在する場合は使用 ---
+            # テンプレートあり／なし両対応
             if [ -f "templates/${INPUT_CLIENT}/reference.pptx" ]; then
               pandoc "$f" -t pptx -s -o "${out_dir}/${base}.pptx" \
                 --resource-path=docs/src \
@@ -75,7 +72,7 @@ jobs:
           done
 
       # --- ⑦ 成果物をアップロード ---
-      - name: 成果物をアップロード
+      - name: 出力成果物をアップロード
         uses: actions/upload-artifact@v4
         with:
           name: pptx-outputs
