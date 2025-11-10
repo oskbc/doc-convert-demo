@@ -30,13 +30,13 @@ jobs:
       # --- ④ 入力値を取得 ---
       - name: 入力パラメータ設定
         id: cfg
-        run: |
-          echo "paths=${{ github.event.inputs.paths }}" >> $GITHUB_OUTPUT
+        run: echo "paths=${{ github.event.inputs.paths }}" >> $GITHUB_OUTPUT
 
       # --- ⑤ CSVをExcelに変換 ---
       - name: CSVファイルをXLSXに変換
         env:
           INPUT_PATHS: ${{ steps.cfg.outputs.paths }}
+        shell: bash
         run: |
           echo "🔍 Searching CSV files in: $INPUT_PATHS"
           FILES=$(bash -lc "ls -1 $INPUT_PATHS 2>/dev/null || true")
@@ -46,7 +46,10 @@ jobs:
             exit 1
           fi
 
-          python3 - <<'PY'
+          echo "=== 対象ファイル一覧 ==="
+          echo "$FILES"
+
+          cat << 'PY' > convert_csv_to_xlsx.py
 import pandas as pd
 import pathlib
 
@@ -61,6 +64,8 @@ for csv in pathlib.Path("docs/src").rglob("*.csv"):
     except Exception as e:
         print(f"⚠️ Failed to convert {csv}: {e}")
 PY
+
+          python3 convert_csv_to_xlsx.py
 
       # --- ⑥ 成果物をアップロード ---
       - name: 成果物をアップロード
