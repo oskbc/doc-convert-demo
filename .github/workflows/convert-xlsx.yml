@@ -1,0 +1,67 @@
+name: Convert CSV to Excel (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      paths:
+        description: "変換したいCSVファイル（例：docs/src/*.csv）"
+        required: true
+        default: "docs/src/**/*.csv"
+
+jobs:
+  convert-xlsx:
+    runs-on: ubuntu-latest
+
+    steps:
+      # --- ① ソースを取得 ---
+      - uses: actions/checkout@v4
+
+      # --- ② Python 環境をセットアップ ---
+      - name: Pythonセットアップ
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 python3-pip
+          pip3 install pandas openpyxl
+
+      # --- ③ 出力フォルダを作成 ---
+      - name: 出力ディレクトリを作成
+        run: mkdir -p docs/out
+
+      # --- ④ 入力値を取得 ---
+      - name: 入力パラメータ設定
+        id: cfg
+        run: |
+          echo "paths=${{ github.event.inputs.paths }}" >> $GITHUB_OUTPUT
+
+      # --- ⑤ CSVをExcelに変換 ---
+      - name: CSVファイルをXLSXに変換
+        env:
+          INPUT_PATHS: ${{ steps.cfg.outputs.paths }}
+        run: |
+          echo "🔍 Searching CSV files in: $INPUT_PATHS"
+          FILES=$(bash -lc "ls -1 $INPUT_PATHS 2>/dev/null || true")
+
+          if [ -z "$FILES" ]; then
+            echo "❌ CSVファイルが見つかりません。パスを確認してください。"
+            exit 1
+          fi
+
+          python3 - << 'PY'
+import pandas as pd
+import pathlib
+
+for csv in pathlib.Path("docs/src").rglob("*.csv"):
+    df = pd.read_csv(csv)
+    out_path = pathlib.Path("docs/out") / csv.relative_to("docs/src")
+    out_path = out_path.with_suffix(".xlsx")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_excel(out_path, index=False)
+    print(f"✅ Converted: {csv} → {out_path}")
+PY
+
+      # --- ⑥ 成果物をアップロード ---
+      - name: 成果物をアップロード
+        uses: actions/upload-artifact@v4
+        with:
+          name: xlsx-outputs
+          path: docs/out/**
