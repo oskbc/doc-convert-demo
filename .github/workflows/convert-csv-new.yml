@@ -1,0 +1,97 @@
+name: Convert Markdown to CSV
+
+on:
+  workflow_dispatch:
+    inputs:
+      paths:
+        description: "要转换的 Markdown 文件路径（例：docs/src/*.md 或 docs/src/**/*.md）"
+        required: true
+        default: "docs/src/*.md"
+      client:
+        description: "输出子目录名（docs/out/{client}/ 下）"
+        required: false
+        default: "default"
+
+jobs:
+  convert-csv:
+    runs-on: ubuntu-latest
+    steps:
+      # ① 取代码
+      - uses: actions/checkout@v4
+
+      # ② 准备 Python（不用 Pandoc）
+      - name: Setup Python
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 python3-pip
+          pip3 install pandas
+
+      # ③ 输出目录
+      - name: Make output dir
+        run: mkdir -p docs/out
+
+      # ④ 读取输入参数
+      - name: Read inputs
+        id: cfg
+        run: |
+          echo "paths=${{ github.event.inputs.paths }}" >> $GITHUB_OUTPUT
+          echo "client=${{ github.event.inputs.client }}" >> $GITHUB_OUTPUT
+
+      # ⑤ 生成一次性转换脚本（把md里的第一个表格转成CSV）
+      - name: Create converter script
+        run: |
+          cat > md_to_csv.py <<'PY'
+import re, sys, pandas as pd, pathlib
+
+def md_first_table_to_csv(md_path, csv_path):
+    lines, in_table = [], False
+    with open(md_path, encoding="utf-8") as f:
+        for line in f:
+            if line.strip().startswith("|"):
+                lines.append(line.strip())
+                in_table = True
+            elif in_table:
+                break
+    if not lines:
+        print(f"⚠️ No table found in {md_path}")
+        return
+    rows = [re.split(r"\s*\|\s*", l.strip("|")) for l in lines]
+    # 兼容“对齐分隔行”——形如 |---|:---:|---|
+    if set(rows[1]) <= {"", ":", "-", ":--", "--:", "---", ":---:", "--", "---:", ":---"}:
+        rows.pop(1)
+    df = pd.DataFrame(rows[1:], columns=rows[0])
+    pathlib.Path(csv_path).parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(csv_path, index=False, encoding="utf-8")
+    print(f"✅ {md_path} -> {csv_path}")
+
+if __name__ == "__main__":
+    md, out = sys.argv[1], sys.argv[2]
+    md_first_table_to_csv(md, out)
+PY
+
+      # ⑥ 扫描并执行转换
+      - name: Convert Markdown to CSV
+        env:
+          INPUT_PATHS: ${{ steps.cfg.outputs.paths }}
+          CLIENT: ${{ steps.cfg.outputs.client }}
+        shell: bash
+        run: |
+          set -e
+          FILES=$(bash -lc "ls -1 ${INPUT_PATHS}")
+          echo "=== Files ==="
+          echo "$FILES"
+          for f in $FILES; do
+            base=$(basename "$f" .md)
+            dir=$(dirname "$f")
+            out_dir="docs/out/${CLIENT}/${dir#docs/src/}"
+            mkdir -p "$out_dir"
+            echo "▶ $f → ${out_dir}/${base}.csv"
+            python3 md_to_csv.py "$f" "${out_dir}/${base}.csv"
+          done
+
+      # ⑦ 上传产物
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: csv-outputs
+          path: docs/out/**
