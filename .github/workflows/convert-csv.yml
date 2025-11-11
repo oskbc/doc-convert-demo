@@ -1,6 +1,5 @@
 name: Convert Markdown to CSV (Python)
 
-# --- ワークフロー開始 ---
 on:
   workflow_dispatch:
     inputs:
@@ -21,30 +20,33 @@ jobs:
       # --- ① リポジトリをチェックアウト ---
       - uses: actions/checkout@v4
 
-      # --- ② Pythonセットアップ ---
+      # --- ② Python セットアップ ---
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: "3.x"
 
-      # --- ③ 必要ライブラリインストール ---
+      # --- ③ 必要ライブラリをインストール ---
       - name: Install dependencies
         run: |
           pip install pandas tabulate markdown
 
-      # --- ④ 出力フォルダ作成 ---
+      # --- ④ 出力フォルダを作成 ---
       - name: Create output folder
         run: mkdir -p docs/out
 
-      # --- ⑤ Markdown → CSV変換（Pythonスクリプト実行） ---
+      # --- ⑤ Markdown → CSV 変換 ---
       - name: Convert Markdown tables to CSV
         env:
           INPUT_PATHS: ${{ github.event.inputs.paths }}
           INPUT_CLIENT: ${{ github.event.inputs.client }}
         run: |
           echo "=== Markdown → CSV 変換開始 ==="
-          python <<'PYCODE'
-import os, glob, pandas as pd, re
+          python - <<'PYCODE'
+import os
+import glob
+import pandas as pd
+import re
 
 input_paths = "${{ github.event.inputs.paths }}"
 client = "${{ github.event.inputs.client }}"
@@ -78,9 +80,10 @@ for f in files:
         df.to_csv(out_file, index=False, encoding="utf-8-sig")
         print(f"✅ 出力: {out_file}")
 
+print("=== 変換完了 ===")
 PYCODE
 
-      # --- ⑥ 成果物アップロード（ダウンロード可能） ---
+      # --- ⑥ 成果物をアップロード ---
       - name: Upload generated CSV files
         uses: actions/upload-artifact@v4
         with:
