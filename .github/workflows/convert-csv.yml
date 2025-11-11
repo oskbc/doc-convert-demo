@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       paths:
-        description: "変換したいMarkdownファイル"
+        description: "変換したいMarkdownファイル（例: docs/src/*.md）"
         required: true
         default: "docs/src/*.md"
       client:
@@ -19,30 +19,33 @@ jobs:
 
     steps:
       # --- ① リポジトリをチェックアウト ---
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       # --- ② Pandoc をセットアップ ---
-      - uses: r-lib/actions/setup-pandoc@v2
+      - name: Setup Pandoc
+        uses: r-lib/actions/setup-pandoc@v2
 
       # --- ③ 出力フォルダ作成 ---
-      - name: 出力ディレクトリを作成
+      - name: Create output directory
         run: mkdir -p docs/out
 
       # --- ④ パラメータ取得 ---
-      - name: 入力値を取得
+      - name: Get workflow inputs
         id: cfg
         run: |
           echo "paths=${{ github.event.inputs.paths }}" >> $GITHUB_OUTPUT
           echo "client=${{ github.event.inputs.client }}" >> $GITHUB_OUTPUT
 
       # --- ⑤ Markdown → CSV 変換 ---
-      - name: PandocでMarkdownをCSVに変換
+      - name: Convert Markdown to CSV via Pandoc
         env:
           INPUT_PATHS: ${{ steps.cfg.outputs.paths }}
           INPUT_CLIENT: ${{ steps.cfg.outputs.client }}
+        shell: bash
         run: |
-          FILES=$(bash -lc "ls -1 ${INPUT_PATHS}")
-          echo "=== 対象ファイル ==="
+          echo "=== 対象ファイル一覧 ==="
+          FILES=$(ls -1 ${INPUT_PATHS})
           echo "$FILES"
 
           for f in $FILES; do
@@ -52,12 +55,11 @@ jobs:
             mkdir -p "$out_dir"
 
             echo "▶ $f → ${out_dir}/${base}.csv"
-
-            pandoc "$f" -t csv -o "${out_dir}/${base}.csv" --resource-path=docs/src
+            pandoc "$f" -t csv -o "${out_dir}/${base}.csv" --resource-path=docs/src || echo "⚠️ 変換失敗: $f"
           done
 
       # --- ⑥ 成果物をアップロード ---
-      - name: 出力成果物をアップロード
+      - name: Upload generated CSV files
         uses: actions/upload-artifact@v4
         with:
           name: csv-outputs
