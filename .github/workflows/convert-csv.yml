@@ -29,24 +29,21 @@ jobs:
       # --- ③ 必要ライブラリをインストール ---
       - name: Install dependencies
         run: |
-          pip install pandas tabulate markdown
+          pip install pandas markdown
 
       # --- ④ 出力フォルダを作成 ---
       - name: Create output folder
         run: mkdir -p docs/out
 
-      # --- ⑤ Markdown → CSV 変換 ---
+      # --- ⑤ Markdown → CSV 変換（Pythonで実行） ---
       - name: Convert Markdown tables to CSV
         env:
           INPUT_PATHS: ${{ github.event.inputs.paths }}
           INPUT_CLIENT: ${{ github.event.inputs.client }}
         run: |
           echo "=== Markdown → CSV 変換開始 ==="
-          python - <<'PYCODE'
-import os
-import glob
-import pandas as pd
-import re
+          python3 - <<EOF
+import os, glob, pandas as pd, re
 
 input_paths = "${{ github.event.inputs.paths }}"
 client = "${{ github.event.inputs.client }}"
@@ -76,12 +73,11 @@ for f in files:
         out_dir = f"docs/out/{client}"
         os.makedirs(out_dir, exist_ok=True)
         out_file = os.path.join(out_dir, f"{base}_{i+1}.csv")
-
         df.to_csv(out_file, index=False, encoding="utf-8-sig")
         print(f"✅ 出力: {out_file}")
 
 print("=== 変換完了 ===")
-PYCODE
+EOF
 
       # --- ⑥ 成果物をアップロード ---
       - name: Upload generated CSV files
