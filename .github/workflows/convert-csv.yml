@@ -1,4 +1,4 @@
-name: Convert Markdown to CSV 1
+name: Convert Markdown to CSV
 
 # --- ワークフロー開始 ---
 on:
