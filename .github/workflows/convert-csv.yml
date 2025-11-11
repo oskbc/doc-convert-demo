@@ -17,69 +17,127 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # --- ① リポジトリをチェックアウト ---
+      # ① Checkout
       - uses: actions/checkout@v4
 
-      # --- ② Python セットアップ ---
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-
-      # --- ③ 必要ライブラリをインストール ---
-      - name: Install dependencies
-        run: |
-          pip install pandas markdown
-
-      # --- ④ 出力フォルダを作成 ---
+      # ② Create output folder
       - name: Create output folder
-        run: mkdir -p docs/out
+        run: mkdir -p docs/out tools
 
-      # --- ⑤ Markdown → CSV 変換（Pythonで実行） ---
-      - name: Convert Markdown tables to CSV
-        env:
-          INPUT_PATHS: ${{ github.event.inputs.paths }}
-          INPUT_CLIENT: ${{ github.event.inputs.client }}
+      # ③ Write converter script to repository (avoids YAML heredoc parsing issues)
+      - name: Write converter script
+        shell: bash
         run: |
-          echo "=== Markdown → CSV 変換開始 ==="
-          python3 - <<EOF
-import os, glob, pandas as pd, re
+          cat > tools/md_table_to_csv.py <<'PY'
+import os, sys, csv, glob
 
-input_paths = "${{ github.event.inputs.paths }}"
-client = "${{ github.event.inputs.client }}"
-files = glob.glob(input_paths)
+def is_table_sep(line: str) -> bool:
+    # e.g. |---|:---:|---|
+    line = line.strip()
+    if not (line.startswith("|") and line.endswith("|")):
+        return False
+    core = line.strip("|").replace(" ", "")
+    return set(core) <= set("-:|") and "---" in core
 
-if not files:
-    print(f"⚠️ Markdownファイルが見つかりません: {input_paths}")
-    exit(0)
+def is_table_row(line: str) -> bool:
+    # a row must have at least two pipes and start/end with pipe
+    line = line.rstrip("\n")
+    return line.startswith("|") and line.endswith("|") and line.count("|") >= 2
 
-for f in files:
-    print(f"▶ {f}")
-    with open(f, encoding="utf-8") as fin:
-        text = fin.read()
+def parse_table(block_lines):
+    """
+    block_lines: [header, sep, row, row, ...]
+    returns: rows(list of list[str]), header(list[str])
+    """
+    def split_row(s):
+        cells = [c.strip() for c in s.strip()[1:-1].split("|")]
+        return cells
 
-    # Markdown表を抽出
-    tables = re.findall(r'((?:\|.*?\|\n)+)', text)
-    if not tables:
-        print(f"⚠️ 表が見つかりません: {f}")
-        continue
+    header = split_row(block_lines[0])
+    rows = []
+    for ln in block_lines[2:]:
+        rows.append(split_row(ln))
+    return rows, header
 
-    for i, table_md in enumerate(tables):
-        rows = [r.strip('|').split('|') for r in table_md.strip().split('\n')]
-        rows = [[c.strip() for c in row] for row in rows]
-        df = pd.DataFrame(rows[1:], columns=rows[0])
+def extract_tables(text_lines):
+    """
+    Yield each table as a list of lines (including header + sep + rows).
+    """
+    i = 0
+    n = len(text_lines)
+    while i < n:
+        ln = text_lines[i]
+        if is_table_row(ln):
+            # need next line to be separator
+            if i + 1 < n and is_table_sep(text_lines[i+1]):
+                j = i + 2
+                while j < n and is_table_row(text_lines[j]):
+                    j += 1
+                yield text_lines[i:j]
+                i = j
+                continue
+        i += 1
 
-        base = os.path.basename(f).replace(".md", "")
-        out_dir = f"docs/out/{client}"
+def main():
+    if len(sys.argv) < 3:
+        print("usage: md_table_to_csv.py <glob_paths> <client>")
+        sys.exit(1)
+
+    glob_paths = sys.argv[1]
+    client = sys.argv[2]
+    files = sorted(glob.glob(glob_paths))
+
+    if not files:
+        print(f"WARNING: no markdown files matched: {glob_paths}")
+        return
+
+    for f in files:
+        with open(f, "r", encoding="utf-8") as fp:
+            lines = fp.read().splitlines()
+
+        tables = list(extract_tables(lines))
+        if not tables:
+            print(f"SKIP (no tables): {f}")
+            continue
+
+        # keep subdir under docs/src/
+        rel_dir = ""
+        try:
+            rel_dir = os.path.relpath(os.path.dirname(f), "docs/src")
+            if rel_dir == ".":
+                rel_dir = ""
+        except ValueError:
+            # if not under docs/src, just keep empty
+            rel_dir = ""
+
+        base = os.path.splitext(os.path.basename(f))[0]
+        out_dir = os.path.join("docs", "out", client, rel_dir)
         os.makedirs(out_dir, exist_ok=True)
-        out_file = os.path.join(out_dir, f"{base}_{i+1}.csv")
-        df.to_csv(out_file, index=False, encoding="utf-8-sig")
-        print(f"✅ 出力: {out_file}")
 
-print("=== 変換完了 ===")
-EOF
+        for idx, tbl in enumerate(tables, start=1):
+            rows, header = parse_table(tbl)
+            out_path = os.path.join(out_dir, f"{base}_{idx}.csv")
+            with open(out_path, "w", encoding="utf-8-sig", newline="") as csvf:
+                writer = csv.writer(csvf)
+                writer.writerow(header)
+                writer.writerows(rows)
+            print(f"WRITE: {out_path}")
 
-      # --- ⑥ 成果物をアップロード ---
+if __name__ == "__main__":
+    main()
+PY
+
+      # ④ Run converter
+      - name: Convert Markdown tables to CSV
+        shell: bash
+        run: |
+          echo "INPUT paths=${{ github.event.inputs.paths }}"
+          echo "INPUT client=${{ github.event.inputs.client }}"
+          python3 tools/md_table_to_csv.py "${{ github.event.inputs.paths }}" "${{ github.event.inputs.client }}"
+          echo "OUTPUT listing:"
+          (find docs/out -type f -name "*.csv" || true)
+
+      # ⑤ Upload artifacts
       - name: Upload generated CSV files
         uses: actions/upload-artifact@v4
         with:
