@@ -1,4 +1,4 @@
-name: Convert Markdown to CSV
+name: Convert Markdown to CSV (Python)
 
 # --- ワークフロー開始 ---
 on:
@@ -21,59 +21,67 @@ jobs:
       # --- ① リポジトリをチェックアウト ---
       - uses: actions/checkout@v4
 
-      # --- ② Pandoc をセットアップ ---
-      - uses: r-lib/actions/setup-pandoc@v2
+      # --- ② Pythonセットアップ ---
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
 
-      # --- ③ フォント導入（日本語対応用・安全措置） ---
-      - name: 日本語フォントをインストール
+      # --- ③ 必要ライブラリインストール ---
+      - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y fonts-noto-cjk
+          pip install pandas tabulate markdown
 
       # --- ④ 出力フォルダ作成 ---
-      - name: 出力ディレクトリを作成
+      - name: Create output folder
         run: mkdir -p docs/out
 
-      # --- ⑤ パラメータ取得 ---
-      - name: 入力値を取得
-        id: cfg
-        run: |
-          echo "paths=${{ github.event.inputs.paths }}" >> $GITHUB_OUTPUT
-          echo "client=${{ github.event.inputs.client }}" >> $GITHUB_OUTPUT
-
-      # --- ⑥ Markdown → CSV 変換 ---
-      - name: PandocでMarkdownをCSVに変換
+      # --- ⑤ Markdown → CSV変換（Pythonスクリプト実行） ---
+      - name: Convert Markdown tables to CSV
         env:
-          INPUT_PATHS: ${{ steps.cfg.outputs.paths }}
-          INPUT_CLIENT: ${{ steps.cfg.outputs.client }}
-        shell: bash
+          INPUT_PATHS: ${{ github.event.inputs.paths }}
+          INPUT_CLIENT: ${{ github.event.inputs.client }}
         run: |
-          echo "=== 対象ファイル一覧 ==="
-          FILES=$(bash -lc "ls -1 ${INPUT_PATHS}" 2>/dev/null || true)
-          echo "$FILES"
+          echo "=== Markdown → CSV 変換開始 ==="
+          python <<'PYCODE'
+import os, glob, pandas as pd, re
 
-          if [ -z "$FILES" ]; then
-            echo "⚠️ Markdownファイルが見つかりません。処理をスキップします。"
-            exit 0
-          fi
+input_paths = "${{ github.event.inputs.paths }}"
+client = "${{ github.event.inputs.client }}"
+files = glob.glob(input_paths)
 
-          for f in $FILES; do
-            base=$(basename "$f" .md)
-            dir=$(dirname "$f")
-            out_dir="docs/out/${INPUT_CLIENT}/${dir#docs/src/}"
-            mkdir -p "$out_dir"
+if not files:
+    print(f"⚠️ Markdownファイルが見つかりません: {input_paths}")
+    exit(0)
 
-            echo "▶ $f → ${out_dir}/${base}.csv"
+for f in files:
+    print(f"▶ {f}")
+    with open(f, encoding="utf-8") as fin:
+        text = fin.read()
 
-            # 変換処理（Pandoc標準CSV出力）
-            pandoc "$f" -t csv -o "${out_dir}/${base}.csv" --resource-path=docs/src || echo "⚠️ 変換失敗: $f"
-          done
+    # Markdown表を抽出
+    tables = re.findall(r'((?:\|.*?\|\n)+)', text)
+    if not tables:
+        print(f"⚠️ 表が見つかりません: {f}")
+        continue
 
-          echo "=== 出力内容 ==="
-          find docs/out -type f || echo "⚠️ 出力ファイルなし"
+    for i, table_md in enumerate(tables):
+        rows = [r.strip('|').split('|') for r in table_md.strip().split('\n')]
+        rows = [[c.strip() for c in row] for row in rows]
+        df = pd.DataFrame(rows[1:], columns=rows[0])
 
-      # --- ⑦ 成果物アップロード（ダウンロード可能） ---
-      - name: 生成されたCSVファイルをアップロード
+        base = os.path.basename(f).replace(".md", "")
+        out_dir = f"docs/out/{client}"
+        os.makedirs(out_dir, exist_ok=True)
+        out_file = os.path.join(out_dir, f"{base}_{i+1}.csv")
+
+        df.to_csv(out_file, index=False, encoding="utf-8-sig")
+        print(f"✅ 出力: {out_file}")
+
+PYCODE
+
+      # --- ⑥ 成果物アップロード（ダウンロード可能） ---
+      - name: Upload generated CSV files
         uses: actions/upload-artifact@v4
         with:
           name: csv-outputs
