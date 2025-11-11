@@ -4,55 +4,48 @@ on:
   workflow_dispatch:
     inputs:
       paths:
-        description: "変換したいMarkdownファイル（例: docs/src/*.md）"
+        description: "Markdown files to convert (e.g., docs/src/*.md)"
         required: true
         default: "docs/src/*.md"
       client:
-        description: "テンプレートディレクトリ名（templates/{client}/）"
+        description: "Client name for output subdir (templates/{client}/)"
         required: false
         default: "default"
 
 jobs:
   convert-csv:
     runs-on: ubuntu-latest
-
     steps:
-      # ① Checkout
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # ② Create output folder
-      - name: Create output folder
-        run: mkdir -p docs/out tools
-
-      # ③ Write converter script to repository (avoids YAML heredoc parsing issues)
-      - name: Write converter script
-        shell: bash
+      - name: Prepare folders
         run: |
-          cat > tools/md_table_to_csv.py <<'PY'
-import os, sys, csv, glob
+          mkdir -p tools
+          mkdir -p docs/out
 
-def is_table_sep(line: str) -> bool:
-    # e.g. |---|:---:|---|
+      - name: Write converter script
+        run: |
+          cat > tools/md_table_to_csv.py <<EOF
+import os
+import sys
+import csv
+import glob
+
+def is_table_sep(line):
     line = line.strip()
     if not (line.startswith("|") and line.endswith("|")):
         return False
     core = line.strip("|").replace(" ", "")
     return set(core) <= set("-:|") and "---" in core
 
-def is_table_row(line: str) -> bool:
-    # a row must have at least two pipes and start/end with pipe
+def is_table_row(line):
     line = line.rstrip("\n")
     return line.startswith("|") and line.endswith("|") and line.count("|") >= 2
 
 def parse_table(block_lines):
-    """
-    block_lines: [header, sep, row, row, ...]
-    returns: rows(list of list[str]), header(list[str])
-    """
     def split_row(s):
-        cells = [c.strip() for c in s.strip()[1:-1].split("|")]
-        return cells
-
+        return [c.strip() for c in s.strip()[1:-1].split("|")]
     header = split_row(block_lines[0])
     rows = []
     for ln in block_lines[2:]:
@@ -60,16 +53,12 @@ def parse_table(block_lines):
     return rows, header
 
 def extract_tables(text_lines):
-    """
-    Yield each table as a list of lines (including header + sep + rows).
-    """
     i = 0
     n = len(text_lines)
     while i < n:
         ln = text_lines[i]
         if is_table_row(ln):
-            # need next line to be separator
-            if i + 1 < n and is_table_sep(text_lines[i+1]):
+            if i + 1 < n and is_table_sep(text_lines[i + 1]):
                 j = i + 2
                 while j < n and is_table_row(text_lines[j]):
                     j += 1
@@ -82,38 +71,28 @@ def main():
     if len(sys.argv) < 3:
         print("usage: md_table_to_csv.py <glob_paths> <client>")
         sys.exit(1)
-
     glob_paths = sys.argv[1]
     client = sys.argv[2]
     files = sorted(glob.glob(glob_paths))
-
     if not files:
-        print(f"WARNING: no markdown files matched: {glob_paths}")
+        print("WARNING: no markdown files matched:", glob_paths)
         return
-
     for f in files:
         with open(f, "r", encoding="utf-8") as fp:
             lines = fp.read().splitlines()
-
         tables = list(extract_tables(lines))
         if not tables:
-            print(f"SKIP (no tables): {f}")
+            print("SKIP (no tables):", f)
             continue
-
-        # keep subdir under docs/src/
-        rel_dir = ""
         try:
             rel_dir = os.path.relpath(os.path.dirname(f), "docs/src")
             if rel_dir == ".":
                 rel_dir = ""
         except ValueError:
-            # if not under docs/src, just keep empty
             rel_dir = ""
-
         base = os.path.splitext(os.path.basename(f))[0]
         out_dir = os.path.join("docs", "out", client, rel_dir)
         os.makedirs(out_dir, exist_ok=True)
-
         for idx, tbl in enumerate(tables, start=1):
             rows, header = parse_table(tbl)
             out_path = os.path.join(out_dir, f"{base}_{idx}.csv")
@@ -121,24 +100,24 @@ def main():
                 writer = csv.writer(csvf)
                 writer.writerow(header)
                 writer.writerows(rows)
-            print(f"WRITE: {out_path}")
+            print("WRITE:", out_path)
 
 if __name__ == "__main__":
     main()
-PY
+EOF
 
-      # ④ Run converter
       - name: Convert Markdown tables to CSV
-        shell: bash
+        env:
+          INPUT_PATHS: ${{ github.event.inputs.paths }}
+          INPUT_CLIENT: ${{ github.event.inputs.client }}
         run: |
-          echo "INPUT paths=${{ github.event.inputs.paths }}"
-          echo "INPUT client=${{ github.event.inputs.client }}"
-          python3 tools/md_table_to_csv.py "${{ github.event.inputs.paths }}" "${{ github.event.inputs.client }}"
+          echo "INPUT paths=${INPUT_PATHS}"
+          echo "INPUT client=${INPUT_CLIENT}"
+          python3 tools/md_table_to_csv.py "${INPUT_PATHS}" "${INPUT_CLIENT}" || true
           echo "OUTPUT listing:"
           (find docs/out -type f -name "*.csv" || true)
 
-      # ⑤ Upload artifacts
-      - name: Upload generated CSV files
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: csv-outputs
