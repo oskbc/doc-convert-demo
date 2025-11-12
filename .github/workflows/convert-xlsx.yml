@@ -1,0 +1,107 @@
+name: Convert Markdown to Excel (Python Safe Version)
+
+on:
+  workflow_dispatch:
+    inputs:
+      paths:
+        description: "Markdown files to convert (e.g., docs/src/*.md)"
+        required: true
+        default: "docs/src/*.md"
+      client:
+        description: "Client name for output subdir (templates/{client}/)"
+        required: false
+        default: "default"
+
+jobs:
+  convert-xlsx:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare folders
+        run: |
+          mkdir -p tools
+          mkdir -p docs/out
+
+      - name: Install Python dependencies
+        run: pip install openpyxl
+
+      - name: Write Python converter script
+        run: |
+          echo 'import os, sys, glob, re, openpyxl' > tools/md_table_to_xlsx.py
+          echo '' >> tools/md_table_to_xlsx.py
+          echo 'def is_table_sep(line):' >> tools/md_table_to_xlsx.py
+          echo '    line = line.strip()' >> tools/md_table_to_xlsx.py
+          echo '    if not (line.startswith("|") and line.endswith("|")):' >> tools/md_table_to_xlsx.py
+          echo '        return False' >> tools/md_table_to_xlsx.py
+          echo '    core = line.strip("|").replace(" ", "")' >> tools/md_table_to_xlsx.py
+          echo '    return set(core) <= set("-:|") and "---" in core' >> tools/md_table_to_xlsx.py
+          echo '' >> tools/md_table_to_xlsx.py
+          echo 'def is_table_row(line):' >> tools/md_table_to_xlsx.py
+          echo '    line = line.rstrip("\\n")' >> tools/md_table_to_xlsx.py
+          echo '    return line.startswith("|") and line.endswith("|") and line.count("|") >= 2' >> tools/md_table_to_xlsx.py
+          echo '' >> tools/md_table_to_xlsx.py
+          echo 'def parse_table(block_lines):' >> tools/md_table_to_xlsx.py
+          echo '    def split_row(s):' >> tools/md_table_to_xlsx.py
+          echo '        return [c.strip() for c in s.strip()[1:-1].split("|")]' >> tools/md_table_to_xlsx.py
+          echo '    header = split_row(block_lines[0])' >> tools/md_table_to_xlsx.py
+          echo '    rows = []' >> tools/md_table_to_xlsx.py
+          echo '    for ln in block_lines[2:]:' >> tools/md_table_to_xlsx.py
+          echo '        rows.append(split_row(ln))' >> tools/md_table_to_xlsx.py
+          echo '    return rows, header' >> tools/md_table_to_xlsx.py
+          echo '' >> tools/md_table_to_xlsx.py
+          echo 'def extract_tables(text_lines):' >> tools/md_table_to_xlsx.py
+          echo '    i = 0; n = len(text_lines)' >> tools/md_table_to_xlsx.py
+          echo '    while i < n:' >> tools/md_table_to_xlsx.py
+          echo '        ln = text_lines[i]' >> tools/md_table_to_xlsx.py
+          echo '        if is_table_row(ln):' >> tools/md_table_to_xlsx.py
+          echo '            if i + 1 < n and is_table_sep(text_lines[i + 1]):' >> tools/md_table_to_xlsx.py
+          echo '                j = i + 2' >> tools/md_table_to_xlsx.py
+          echo '                while j < n and is_table_row(text_lines[j]): j += 1' >> tools/md_table_to_xlsx.py
+          echo '                yield text_lines[i:j]; i = j; continue' >> tools/md_table_to_xlsx.py
+          echo '        i += 1' >> tools/md_table_to_xlsx.py
+          echo '' >> tools/md_table_to_xlsx.py
+          echo 'def main():' >> tools/md_table_to_xlsx.py
+          echo '    if len(sys.argv) < 3:' >> tools/md_table_to_xlsx.py
+          echo '        print("usage: md_table_to_xlsx.py <glob_paths> <client>"); sys.exit(1)' >> tools/md_table_to_xlsx.py
+          echo '    glob_paths, client = sys.argv[1], sys.argv[2]' >> tools/md_table_to_xlsx.py
+          echo '    files = sorted(glob.glob(glob_paths))' >> tools/md_table_to_xlsx.py
+          echo '    if not files: print("No markdown found:", glob_paths); return' >> tools/md_table_to_xlsx.py
+          echo '    for f in files:' >> tools/md_table_to_xlsx.py
+          echo '        with open(f, "r", encoding="utf-8") as fp: lines = fp.read().splitlines()' >> tools/md_table_to_xlsx.py
+          echo '        tables = list(extract_tables(lines))' >> tools/md_table_to_xlsx.py
+          echo '        if not tables: print("SKIP (no tables):", f); continue' >> tools/md_table_to_xlsx.py
+          echo '        try:' >> tools/md_table_to_xlsx.py
+          echo '            rel_dir = os.path.relpath(os.path.dirname(f), "docs/src")' >> tools/md_table_to_xlsx.py
+          echo '            if rel_dir == ".": rel_dir = ""' >> tools/md_table_to_xlsx.py
+          echo '        except ValueError:' >> tools/md_table_to_xlsx.py
+          echo '            rel_dir = ""' >> tools/md_table_to_xlsx.py
+          echo '        base = os.path.splitext(os.path.basename(f))[0]' >> tools/md_table_to_xlsx.py
+          echo '        out_dir = os.path.join("docs", "out", client, rel_dir)' >> tools/md_table_to_xlsx.py
+          echo '        os.makedirs(out_dir, exist_ok=True)' >> tools/md_table_to_xlsx.py
+          echo '        for idx, tbl in enumerate(tables, start=1):' >> tools/md_table_to_xlsx.py
+          echo '            rows, header = parse_table(tbl)' >> tools/md_table_to_xlsx.py
+          echo '            out_path = os.path.join(out_dir, f"{base}_{idx}.xlsx")' >> tools/md_table_to_xlsx.py
+          echo '            wb = openpyxl.Workbook(); ws = wb.active' >> tools/md_table_to_xlsx.py
+          echo '            ws.append(header)' >> tools/md_table_to_xlsx.py
+          echo '            for row in rows: ws.append(row)' >> tools/md_table_to_xlsx.py
+          echo '            wb.save(out_path)' >> tools/md_table_to_xlsx.py
+          echo '            print("WRITE:", out_path)' >> tools/md_table_to_xlsx.py
+          echo '' >> tools/md_table_to_xlsx.py
+          echo 'if __name__ == "__main__": main()' >> tools/md_table_to_xlsx.py
+
+      - name: Convert Markdown tables to Excel
+        env:
+          INPUT_PATHS: ${{ github.event.inputs.paths }}
+          INPUT_CLIENT: ${{ github.event.inputs.client }}
+        run: |
+          python3 tools/md_table_to_xlsx.py "${INPUT_PATHS}" "${INPUT_CLIENT}"
+          echo "---- Output files ----"
+          (find docs/out -type f || true)
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xlsx-outputs
+          path: docs/out/**
