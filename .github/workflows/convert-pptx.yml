@@ -1,4 +1,4 @@
-name: Convert Markdown to PowerPoint new
+name: Convert Markdown to PowerPoint
 
 on:
   workflow_dispatch:
