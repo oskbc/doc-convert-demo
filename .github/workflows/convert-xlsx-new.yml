@@ -1,4 +1,4 @@
-name: Convert Markdown to Excel (Python Safe Version + Template)
+name: Convert Markdown to Excel (+ Template)
 
 on:
   workflow_dispatch:
