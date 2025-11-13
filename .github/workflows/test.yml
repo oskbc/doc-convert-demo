@@ -1,14 +1,14 @@
-name: Convert Markdown to Excel
+name: Convert Markdown to Excel (Python Safe Version + Template)
 
 on:
   workflow_dispatch:
     inputs:
       paths:
-        description: "変換したいMarkdownファイル (例: docs/src/*.md)"
+        description: "Markdown files to convert (e.g., docs/src/*.md)"
         required: true
         default: "docs/src/*.md"
       client:
-        description: "テンプレートディレクトリ名（templates/{client}/）"
+        description: "Client name for output subdir (templates/{client}/)"
         required: false
         default: "default"
 
@@ -17,146 +17,141 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # --- ① リポジトリをチェックアウト ---
-      - name: リポジトリをチェックアウト
+      - name: Checkout
         uses: actions/checkout@v4
 
       # --- ② 必要フォルダ作成 ---
-      - name: 必要フォルダを作成
+      - name: Prepare folders
         run: |
           mkdir -p tools
           mkdir -p docs/out
 
-      # --- ③ Python依存ライブラリをインストール ---
-      - name: Python依存（openpyxl）をインストール
+      # --- ③ Pythonライブラリインストール ---
+      - name: Install Python dependencies
         run: pip install openpyxl
 
-      # --- ④ Pythonスクリプト生成（テンプレート対応版） ---
-      - name: Excel変換スクリプトを生成（テンプレート参照対応）
+      # --- ④ Excelテンプレート存在チェック ---
+      - name: Check Excel template
+        id: template
         run: |
-          cat > tools/md_table_to_xlsx.py << 'EOF'
-import os, sys, glob, openpyxl
-
-# --- テーブル解析補助関数 ---
-def is_table_sep(line):
-    line = line.strip()
-    if not (line.startswith("|") and line.endswith("|")):
-        return False
-    core = line.strip("|").replace(" ", "")
-    return set(core) <= set("-:|") and "---" in core
-
-def is_table_row(line):
-    return line.startswith("|") and line.endswith("|") and line.count("|") >= 2
-
-def parse_table(lines):
-    def split_row(s):
-        return [c.strip() for c in s.strip()[1:-1].split("|")]
-    header = split_row(lines[0])
-    rows = [split_row(ln) for ln in lines[2:]]
-    return rows, header
-
-def extract_tables(text_lines):
-    i, n = 0, len(text_lines)
-    while i < n:
-        if is_table_row(text_lines[i]):
-            if i+1 < n and is_table_sep(text_lines[i+1]):
-                j = i+2
-                while j < n and is_table_row(text_lines[j]):
-                    j += 1
-                yield text_lines[i:j]
-                i = j
-                continue
-        i += 1
-
-def main():
-    if len(sys.argv) < 4:
-        print("usage: <glob_paths> <client> <template_path>")
-        sys.exit(1)
-
-    glob_paths, client, template_path = sys.argv[1], sys.argv[2], sys.argv[3]
-    files = sorted(glob.glob(glob_paths))
-
-    for f in files:
-        with open(f, "r", encoding="utf-8") as fp:
-            lines = fp.read().splitlines()
-
-        tables = list(extract_tables(lines))
-        if not tables:
-            print("SKIP (no tables):", f)
-            continue
-
-        rel_dir = os.path.relpath(os.path.dirname(f), "docs/src")
-        if rel_dir == ".":
-            rel_dir = ""
-
-        base = os.path.splitext(os.path.basename(f))[0]
-        out_dir = os.path.join("docs", "out", client, rel_dir)
-        os.makedirs(out_dir, exist_ok=True)
-
-        # --- テンプレートがある場合：ロードする ---
-        use_template = template_path and os.path.isfile(template_path)
-
-        for idx, tbl in enumerate(tables, start=1):
-            rows, header = parse_table(tbl)
-
-            out_path = os.path.join(out_dir, f"{base}_{idx}.xlsx")
-
-            if use_template:
-                # --- テンプレート読み込み ---
-                wb = openpyxl.load_workbook(template_path)
-                ws = wb.active
-                print("TEMPLATE USED:", template_path)
-            else:
-                wb = openpyxl.Workbook()
-                ws = wb.active
-
-            # --- 既存内容をクリア（テンプレートのスタイルは残す） ---
-            for row in ws["A1:Z300"]:
-                for cell in row:
-                    cell.value = None
-
-            # --- データ書き込み（A1から） ---
-            for c, h in enumerate(header, start=1):
-                ws.cell(row=1, column=c, value=h)
-            for r_i, r in enumerate(rows, start=2):
-                for c_i, v in enumerate(r, start=1):
-                    ws.cell(row=r_i, column=c_i, value=v)
-
-            wb.save(out_path)
-            print("WRITE:", out_path)
-
-if __name__ == "__main__":
-    main()
-EOF
-
-      # --- ⑤ Excelテンプレート存在チェック ---
-      - name: Excelテンプレート確認
-        id: xlsxtmpl
-        run: |
-          CLIENT=${{ github.event.inputs.client }}
+          CLIENT="${{ github.event.inputs.client }}"
           if [ -f "templates/${CLIENT}/reference.xlsx" ]; then
             echo "template_path=templates/${CLIENT}/reference.xlsx" >> $GITHUB_OUTPUT
-            echo "✅ テンプレート使用: templates/${CLIENT}/reference.xlsx"
+            echo "Use client template: templates/${CLIENT}/reference.xlsx"
           elif [ -f "templates/default/reference.xlsx" ]; then
             echo "template_path=templates/default/reference.xlsx" >> $GITHUB_OUTPUT
-            echo "⚙️ デフォルトテンプレート使用: templates/default/reference.xlsx"
+            echo "Use default template: templates/default/reference.xlsx"
           else
             echo "template_path=" >> $GITHUB_OUTPUT
-            echo "⚠️ Excelテンプレートが見つかりません。空白ワークブックを使用します。"
+            echo "No Excel template found. Use blank workbook."
           fi
 
-      # --- ⑥ 実際の変換処理 ---
-      - name: MarkdownからExcelへ変換
+      # --- ⑤ Python 変換スクリプト生成（テンプレート対応） ---
+      - name: Write Python converter script
+        run: |
+          echo 'import os, sys, glob, openpyxl, shutil' > tools/md_table_to_xlsx.py
+          echo '' >> tools/md_table_to_xlsx.py
+          echo 'def is_table_sep(line):' >> tools/md_table_to_xlsx.py
+          echo '    line = line.strip()' >> tools/md_table_to_xlsx.py
+          echo '    if not (line.startswith("|") and line.endswith("|")):' >> tools/md_table_to_xlsx.py
+          echo '        return False' >> tools/md_table_to_xlsx.py
+          echo '    core = line.strip("|").replace(" ", "")' >> tools/md_table_to_xlsx.py
+          echo '    return set(core) <= set("-:|") and "---" in core' >> tools/md_table_to_xlsx.py
+          echo '' >> tools/md_table_to_xlsx.py
+          echo 'def is_table_row(line):' >> tools/md_table_to_xlsx.py
+          echo '    line = line.rstrip("\n")' >> tools/md_table_to_xlsx.py
+          echo '    return line.startswith("|") and line.endswith("|") and line.count("|") >= 2' >> tools/md_table_to_xlsx.py
+          echo '' >> tools/md_table_to_xlsx.py
+          echo 'def parse_table(block_lines):' >> tools/md_table_to_xlsx.py
+          echo '    def split_row(s):' >> tools/md_table_to_xlsx.py
+          echo '        return [c.strip() for c in s.strip()[1:-1].split("|")]' >> tools/md_table_to_xlsx.py
+          echo '    header = split_row(block_lines[0])' >> tools/md_table_to_xlsx.py
+          echo '    rows = []' >> tools/md_table_to_xlsx.py
+          echo '    for ln in block_lines[2:]:' >> tools/md_table_to_xlsx.py
+          echo '        rows.append(split_row(ln))' >> tools/md_table_to_xlsx.py
+          echo '    return rows, header' >> tools/md_table_to_xlsx.py
+          echo '' >> tools/md_table_to_xlsx.py
+          echo 'def extract_tables(text_lines):' >> tools/md_table_to_xlsx.py
+          echo '    i = 0' >> tools/md_table_to_xlsx.py
+          echo '    n = len(text_lines)' >> tools/md_table_to_xlsx.py
+          echo '    while i < n:' >> tools/md_table_to_xlsx.py
+          echo '        ln = text_lines[i]' >> tools/md_table_to_xlsx.py
+          echo '        if is_table_row(ln):' >> tools/md_table_to_xlsx.py
+          echo '            if i + 1 < n and is_table_sep(text_lines[i + 1]):' >> tools/md_table_to_xlsx.py
+          echo '                j = i + 2' >> tools/md_table_to_xlsx.py
+          echo '                while j < n and is_table_row(text_lines[j]):' >> tools/md_table_to_xlsx.py
+          echo '                    j += 1' >> tools/md_table_to_xlsx.py
+          echo '                yield text_lines[i:j]' >> tools/md_table_to_xlsx.py
+          echo '                i = j' >> tools/md_table_to_xlsx.py
+          echo '                continue' >> tools/md_table_to_xlsx.py
+          echo '        i += 1' >> tools/md_table_to_xlsx.py
+          echo '' >> tools/md_table_to_xlsx.py
+          echo 'def main():' >> tools/md_table_to_xlsx.py
+          echo '    if len(sys.argv) < 4:' >> tools/md_table_to_xlsx.py
+          echo '        print("usage: md_table_to_xlsx.py <glob_paths> <client> <template_path>")' >> tools/md_table_to_xlsx.py
+          echo '        sys.exit(1)' >> tools/md_table_to_xlsx.py
+          echo '    glob_paths = sys.argv[1]' >> tools/md_table_to_xlsx.py
+          echo '    client = sys.argv[2]' >> tools/md_table_to_xlsx.py
+          echo '    template_path = sys.argv[3]' >> tools/md_table_to_xlsx.py
+          echo '    files = sorted(glob.glob(glob_paths))' >> tools/md_table_to_xlsx.py
+          echo '    if not files:' >> tools/md_table_to_xlsx.py
+          echo '        print("No markdown found:", glob_paths)' >> tools/md_table_to_xlsx.py
+          echo '        return' >> tools/md_table_to_xlsx.py
+          echo '    for f in files:' >> tools/md_table_to_xlsx.py
+          echo '        with open(f, "r", encoding="utf-8") as fp:' >> tools/md_table_to_xlsx.py
+          echo '            lines = fp.read().splitlines()' >> tools/md_table_to_xlsx.py
+          echo '        tables = list(extract_tables(lines))' >> tools/md_table_to_xlsx.py
+          echo '        if not tables:' >> tools/md_table_to_xlsx.py
+          echo '            print("SKIP (no tables):", f)' >> tools/md_table_to_xlsx.py
+          echo '            continue' >> tools/md_table_to_xlsx.py
+          echo '        try:' >> tools/md_table_to_xlsx.py
+          echo '            rel_dir = os.path.relpath(os.path.dirname(f), "docs/src")' >> tools/md_table_to_xlsx.py
+          echo '            if rel_dir == ".":' >> tools/md_table_to_xlsx.py
+          echo '                rel_dir = ""' >> tools/md_table_to_xlsx.py
+          echo '        except ValueError:' >> tools/md_table_to_xlsx.py
+          echo '            rel_dir = ""' >> tools/md_table_to_xlsx.py
+          echo '        base = os.path.splitext(os.path.basename(f))[0]' >> tools/md_table_to_xlsx.py
+          echo '        out_dir = os.path.join("docs", "out", client, rel_dir)' >> tools/md_table_to_xlsx.py
+          echo '        os.makedirs(out_dir, exist_ok=True)' >> tools/md_table_to_xlsx.py
+          echo '        for idx, tbl in enumerate(tables, start=1):' >> tools/md_table_to_xlsx.py
+          echo '            rows, header = parse_table(tbl)' >> tools/md_table_to_xlsx.py
+          echo '            out_path = os.path.join(out_dir, f"{base}_{idx}.xlsx")' >> tools/md_table_to_xlsx.py
+          echo '            # --- テンプレートを利用する場合 ---' >> tools/md_table_to_xlsx.py
+          echo '            if template_path and os.path.isfile(template_path):' >> tools/md_table_to_xlsx.py
+          echo '                shutil.copy(template_path, out_path)' >> tools/md_table_to_xlsx.py
+          echo '                wb = openpyxl.load_workbook(out_path)' >> tools/md_table_to_xlsx.py
+          echo '                ws = wb.active' >> tools/md_table_to_xlsx.py
+          echo '                # 既存の値のみ削除（スタイルは保持）' >> tools/md_table_to_xlsx.py
+          echo '                for row in ws.iter_rows():' >> tools/md_table_to_xlsx.py
+          echo '                    for cell in row:' >> tools/md_table_to_xlsx.py
+          echo '                        cell.value = None' >> tools/md_table_to_xlsx.py
+          echo '            else:' >> tools/md_table_to_xlsx.py
+          echo '                wb = openpyxl.Workbook()' >> tools/md_table_to_xlsx.py
+          echo '                ws = wb.active' >> tools/md_table_to_xlsx.py
+          echo '            # --- ヘッダー書き込み ---' >> tools/md_table_to_xlsx.py
+          echo '            ws.append(header)' >> tools/md_table_to_xlsx.py
+          echo '            # --- データ行書き込み ---' >> tools/md_table_to_xlsx.py
+          echo '            for row in rows:' >> tools/md_table_to_xlsx.py
+          echo '                ws.append(row)' >> tools/md_table_to_xlsx.py
+          echo '            wb.save(out_path)' >> tools/md_table_to_xlsx.py
+          echo '            print("WRITE:", out_path)' >> tools/md_table_to_xlsx.py
+          echo '' >> tools/md_table_to_xlsx.py
+          echo 'if __name__ == "__main__":' >> tools/md_table_to_xlsx.py
+          echo '    main()' >> tools/md_table_to_xlsx.py
+
+      # --- ⑥ Markdown → Excel 変換実行 ---
+      - name: Convert Markdown tables to Excel
         env:
           INPUT_PATHS: ${{ github.event.inputs.paths }}
-          CLIENT: ${{ github.event.inputs.client }}
-          TEMPLATE_PATH: ${{ steps.xlsxtmpl.outputs.template_path }}
+          INPUT_CLIENT: ${{ github.event.inputs.client }}
+          TEMPLATE_PATH: ${{ steps.template.outputs.template_path }}
         run: |
-          python3 tools/md_table_to_xlsx.py "${INPUT_PATHS}" "${CLIENT}" "${TEMPLATE_PATH}"
-          echo "---- 出力完了ファイル ----"
-          find docs/out -type f || true
+          python3 tools/md_table_to_xlsx.py "${INPUT_PATHS}" "${INPUT_CLIENT}" "${TEMPLATE_PATH}"
+          echo "---- Output files ----"
+          (find docs/out -type f || true)
 
-      # --- ⑦ 成果物をアップロード ---
-      - name: 成果物（xlsx）をアップロード
+      # --- ⑦ 成果物アップロード ---
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: xlsx-outputs
