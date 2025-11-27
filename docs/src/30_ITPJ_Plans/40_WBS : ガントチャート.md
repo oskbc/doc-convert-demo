@@ -29,7 +29,7 @@ gantt
     axisFormat  %m/%d
     
     section 要件定義
-    ヒアリング・要件整理      :done,    req1, 202X-04-01, 10d
+    ヒアリング・要件整理      :done,    req1, 2025-04-01, 10d
     要件定義書作成          :active,  req2, after req1, 10d
     要件定義レビュー・承認    :         req3, after req2, 5d
     
