@@ -1,4 +1,4 @@
-# 13. NDA（秘密保持契約書）
+<img width="2098" height="946" alt="image" src="https://github.com/user-attachments/assets/b8a10688-bd07-4850-8a57-99815de6feee" /># 13. NDA（秘密保持契約書）
 
 **{{MyCompanyName}}**（以下「甲」という）と **{{ClientName}}**（以下「乙」という）とは、両者間で検討する「{{ProjectName}}」（以下「本取引」という）に関連して、相互に開示される秘密情報の取扱いについて、以下の通り契約（以下「本契約」という）を締結する。
 
@@ -35,11 +35,11 @@
 **契約締結日：202X年 MM月 DD日**
 
 **（甲）**
-> 住所：{{Address}}
-> 社名：{{MyCompanyName}}
+> 住所：{{Address}}</br>
+> 社名：{{MyCompanyName}}</br>
 > 代表者：{{CEO_Name}}　　印
 
 **（乙）**
-> 住所：{{ClientAddress}}
-> 社名：{{ClientName}}
+> 住所：{{ClientAddress}}</br>
+> 社名：{{ClientName}}</br>
 > 代表者：{{ClientCEO_Name}}　　印
